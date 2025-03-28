@@ -1,0 +1,553 @@
+
+variables:
+  DOCKER_HOST: tcp://docker:2375
+  DOCKER_TLS_CERTDIR: ""
+
+services:
+  - name: docker:dind
+    command: ["--host=tcp://0.0.0.0:2375", "--host=unix:///var/run/docker.sock"]
+
+stages: 
+  - Deploy storage account
+  - Back test unitaire
+  - Back build image dev
+  - Back build image prod
+  - Back test acceptation dev
+  - Back test acceptation prod
+  - Back release image dev
+  - Back release image prod
+  - Back deploy dev
+  - Back deploy prod
+  #- TesterBack dev
+  #- TestBack prod
+  - Front test unitaire
+  - Front build image dev
+  - Front build image prod
+  - Front test acceptation dev
+  - Front test acceptation prod
+  - Front release image dev
+  - Front release image prod
+  - Front deploy dev
+  - Front deploy prod
+  #- TesterFront dev
+  #- TestFront prod
+  - Destroy storage account
+
+Deploy storage account:
+  image: docker:latest
+  stage: Deploy storage account
+  script:
+    - apk add --no-cache bash curl jq unzip
+    - curl -fsSL https://releases.hashicorp.com/terraform/1.7.3/terraform_1.7.3_linux_amd64.zip -o terraform.zip
+    - unzip terraform.zip
+    - mv terraform /usr/local/bin/
+    - rm terraform.zip
+    - terraform version
+    - apk add --no-cache py3-pip
+    - pip install azure-cli
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - pwd
+    - ls -la
+    - ls -la terraform-container
+    - cd terraform-container
+    - pwd
+    - terraform init
+    - terraform apply -auto-approve || true
+    - terraform output -json > outputs.json
+    - cat outputs.json
+  when: manual  
+  tags:
+    - terraform-runner 
+
+before_script:
+  - docker info
+  - cd APPjs/trinity-devops-app
+  - apk add --no-cache coreutils
+  - apk add --no-cache curl jq python3 py3-pip gcc python3-dev musl-dev linux-headers
+  - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+  - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+  - python3 -m venv /opt/venv
+  - . /opt/venv/bin/activate
+  - pip install --upgrade pip
+  - pip install azure-cli
+  - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+  - az account set --subscription $AZ_SUBSCRIPTION_ID
+  - az account show
+
+################################## BACKEND #####################################################      
+# TEST UNITAIRE BACKEND DEV
+Back test unitaire:
+  image: docker:latest
+  stage: Back test unitaire
+  script:
+    - docker info      
+    - pwd
+    - ls -la 
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-app:dev -f Dockerfile.test .
+  when: manual
+  tags:
+    - docker-run
+
+# BUILD BACKEND DEV
+Backend build dev:
+  image: docker:latest
+  stage: Back build image dev
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show       
+    - pwd
+    - ls -la 
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-app:dev -f Dockerfile.dev .
+    - docker save trinity-devops-app:dev > ../../trinity-devops-app-dev.tar
+    - cd ../..
+    - ls -la
+    - echo "Uploading trinity-devops-app-dev.tar..."
+    - az storage blob upload --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-dev.tar" --name "trinity-devops-app-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY --overwrite
+  when: manual
+  tags:
+    - docker-run
+
+# BUILD BACKEND PROD
+Backend build prod:
+  image: docker:latest
+  stage: Back build image prod
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show       
+    - pwd
+    - ls -la 
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-app:prod -f Dockerfile.prod .
+    - docker save trinity-devops-app:prod > ../../trinity-devops-app-prod.tar
+    - cd ../..
+    - ls -la
+    - echo "Uploading trinity-devops-app-prod.tar..."
+    - az storage blob upload --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-prod.tar" --name "trinity-devops-app-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY --overwrite
+    
+  when: manual
+  tags:
+    - docker-run
+
+# RUN DEV
+Back test acceptation dev:
+  image: docker:latest
+  stage: Back test acceptation dev
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - echo "download trinity-devops-app-dev.tar..."
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-dev.tar" --name "trinity-devops-app-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - ls -lh trinity-devops-app-dev.tar
+    - tar -tvf trinity-devops-app-dev.tar
+    - docker load < trinity-devops-app-dev.tar
+    - docker run -d -p 80:4000 -e PORT=4000 --name trinity-devops-app trinity-devops-app:dev
+    - sleep 5
+    - docker ps
+    - docker logs trinity-devops-app
+    - docker exec trinity-devops-app curl http://localhost:4000
+    - curl "http://docker" | grep -q "Hello World!"
+  when: manual
+  tags:
+    - docker-run
+
+# RUN PROD
+Back test acceptation prod:
+  image: docker:latest
+  stage: Back test acceptation prod
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-prod.tar" --name "trinity-devops-app-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-app-prod.tar
+    - docker run -d -p 80:4000 -e PORT=4000 --name trinity-devops-app trinity-devops-app:prod
+    - sleep 5
+    - curl "http://docker" | grep -q "Hello World!"
+  when: manual
+  tags:
+    - docker-run
+
+############################## RELEASE IMAGE DEV ##########################################
+Back release image dev:
+  image: docker:latest
+  stage: Back release image dev
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-dev.tar" --name "trinity-devops-app-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-app-dev.tar
+    - docker images
+    - IMAGE_ID=$(docker images -q trinity-devops-app:dev)
+    - docker tag $IMAGE_ID "${IMAGE_NAME_DEV}:${CI_COMMIT_REF_NAME}"
+    - docker tag $IMAGE_ID "${IMAGE_NAME_DEV}:${CI_COMMIT_SHORT_SHA}"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker push "${IMAGE_NAME_DEV}:${CI_COMMIT_REF_NAME}"
+    - docker push "${IMAGE_NAME_DEV}:${CI_COMMIT_SHORT_SHA}"
+  tags:
+    - docker-run
+  when: manual
+
+  ############################## RELEASE IMAGE PROD ##########################################
+Back release image prod:
+  image: docker:latest
+  stage: Back release image prod
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-prod.tar" --name "trinity-devops-app-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-app-prod.tar
+    - docker images
+    - IMAGE_ID=$(docker images -q trinity-devops-app:prod)
+    - docker tag $IMAGE_ID "${IMAGE_NAME_PROD}:${CI_COMMIT_REF_NAME}"
+    - docker tag $IMAGE_ID "${IMAGE_NAME_PROD}:${CI_COMMIT_SHORT_SHA}"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker push "${IMAGE_NAME_PROD}:${CI_COMMIT_REF_NAME}"
+    - docker push "${IMAGE_NAME_PROD}:${CI_COMMIT_SHORT_SHA}"
+  tags:
+    - docker-run
+  when: manual
+
+############################## DEPLOY BACKEND DEV ##########################################
+Back deploy dev:
+  image: docker:latest
+  stage: Back deploy dev
+  script:
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - echo "Downloading trinity-devops-app-dev.tar..."
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-dev.tar" --name "trinity-devops-app-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-app-dev.tar
+    - az acr login --name $AZURE_REGISTRY_USERNAME
+    - docker tag trinity-devops-app:dev $IMAGE_NAME_DEV:latest
+    - docker push $IMAGE_NAME_DEV:latest
+    - az webapp config container set --name $WEB_APP_NAME_DEV --resource-group artefact-gitlab --docker-custom-image-name $IMAGE_NAME_DEV:latest --docker-registry-server-url https://$AZURE_REGISTRY_USERNAME.azurecr.io --docker-registry-server-user $AZURE_REGISTRY_USERNAME --docker-registry-server-password $AZURE_REGISTRY_PASSWORD
+    - az webapp restart --name $WEB_APP_NAME_DEV --resource-group artefact-gitlab
+  when: manual
+  tags:
+    - docker-run
+  environment:
+    name: dev
+    url: http://$WEB_APP_NAME_DEV.azurewebsites.net
+
+############################## DEPLOY BACKEND PROD ##########################################
+Back deploy prod:
+  image: docker:latest
+  stage: Back deploy prod
+  script:
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - echo "Downloading trinity-devops-app-prod.tar..."
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-app-prod.tar" --name "trinity-devops-app-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-app-prod.tar
+    - az acr login --name $AZURE_REGISTRY_USERNAME
+    - docker tag trinity-devops-app:prod $IMAGE_NAME_PROD:latest
+    - docker push $IMAGE_NAME_PROD:latest
+    - az webapp config container set --name $WEB_APP_NAME_PROD --resource-group artefact-gitlab --docker-custom-image-name $IMAGE_NAME_PROD:latest --docker-registry-server-url https://$AZURE_REGISTRY_USERNAME.azurecr.io --docker-registry-server-user $AZURE_REGISTRY_USERNAME --docker-registry-server-password $AZURE_REGISTRY_PASSWORD
+    - az webapp restart --name $WEB_APP_NAME_PROD --resource-group artefact-gitlab
+  when: manual
+  tags:
+    - docker-run
+  environment:
+    name: production
+    url: http://$WEB_APP_NAME_PROD.azurewebsites.net    
+
+################################ FRONTEND ###########################################################
+# TEST UNITAIRE FRONT
+Front test unitaire:
+  image: docker:latest
+  stage: Front test unitaire
+  script:
+    - docker info
+    - cd .. && cd trinity-devops-front      
+    - pwd
+    - ls -la 
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-front:dev -f Dockerfile.test .
+  when: manual
+  tags:
+    - docker-run
+
+# BUILD FRONTEND DEV
+Frontend build dev:
+  image: docker:latest
+  stage: Front build image dev
+  script:
+    - docker info
+    - cd .. && cd trinity-devops-front 
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show       
+    - pwd
+    - ls -la
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-front:dev -f Dockerfile.dev .
+    - docker save trinity-devops-front:dev > ../../trinity-devops-front-dev.tar
+    - cd ../..
+    - az storage blob upload --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-dev.tar" --name "trinity-devops-front-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY --overwrite
+  when: manual
+  tags:
+    - docker-run
+
+# BUILD FRONTEND PROD
+Frontend build prod:
+  image: docker:latest
+  stage: Front build image prod
+  script:
+    - docker info
+    - cd .. && cd trinity-devops-front 
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show       
+    - pwd
+    - ls -la
+    - echo $DOCKER_HOST
+    - docker --version
+    - docker info
+    - docker build -t trinity-devops-front:prod -f Dockerfile.prod .
+    - docker save trinity-devops-front:prod > ../../trinity-devops-front-prod.tar
+    - cd ../..
+    - ls -la
+    - az storage blob upload --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-prod.tar" --name "trinity-devops-front-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY --overwrite
+  when: manual
+  tags:
+    - docker-run
+
+
+# RUN FRONT DEV
+Front test acceptation dev:
+  image: docker:latest
+  stage: Front test acceptation dev
+  script:
+    - docker info
+    - cd .. && cd trinity-devops-front 
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-dev.tar" --name "trinity-devops-front-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-front-dev.tar
+    - docker run -d -p 80:80 -e PORT=80 --name trinity-devops-front trinity-devops-front:dev
+    - sleep 5
+    - docker ps
+    - docker logs trinity-devops-front
+    - docker exec trinity-devops-front curl http://localhost:80
+    #- curl "http://docker"
+    #- sleep 10
+    #- curl "http://localhost:8080"
+    #- curl "http://docker" | grep -q "Welcome to Your Vue.js App"
+  when: manual
+  tags:
+    - docker-run
+
+# RUN FRONT PROD
+Front test acceptation prod:
+  image: docker:latest
+  stage: Front test acceptation prod
+  script:
+    - docker info
+    - cd .. && cd trinity-devops-front 
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-prod.tar" --name "trinity-devops-front-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-front-prod.tar
+    - docker run -d -p 80:80 -e PORT=80 --name trinity-devops-front trinity-devops-front:prod
+    - sleep 5
+    - docker ps
+    - docker logs trinity-devops-front
+    - docker exec trinity-devops-front curl http://localhost:80
+    #- curl "http://docker"
+    #- sleep 10
+    #- curl "http://localhost:8080"
+    #- curl "http://docker" | grep -q "Welcome to Your Vue.js App"
+  when: manual
+  tags:
+    - docker-run
+
+############################## RELEASE FRONT IMAGE DEV ##########################################
+Front release image dev:
+  image: docker:latest
+  stage: Front release image dev
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-dev.tar" --name "trinity-devops-front-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - docker load < trinity-devops-front-dev.tar
+    - docker images
+    - IMAGE_ID=$(docker images -q trinity-devops-front:dev)
+    - docker tag $IMAGE_ID "${IMAGE_NAME_FRONT_DEV}:${CI_COMMIT_REF_NAME}"
+    - docker tag $IMAGE_ID "${IMAGE_NAME_FRONT_DEV}:${CI_COMMIT_SHORT_SHA}"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker push "${IMAGE_NAME_FRONT_DEV}:${CI_COMMIT_REF_NAME}"
+    - docker push "${IMAGE_NAME_FRONT_DEV}:${CI_COMMIT_SHORT_SHA}"
+  tags:
+    - docker-run
+  when: manual
+
+############################## RELEASE FRONT IMAGE PROD ##########################################
+Front release image prod:
+  image: docker:latest
+  stage: Front release image prod
+  script:
+    - docker info
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-prod.tar" --name "trinity-devops-front-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-front-prod.tar
+    - docker images
+    - IMAGE_ID=$(docker images -q trinity-devops-front:prod)
+    - docker tag $IMAGE_ID "${IMAGE_NAME_FRONT_PROD}:${CI_COMMIT_REF_NAME}"
+    - docker tag $IMAGE_ID "${IMAGE_NAME_FRONT_PROD}:${CI_COMMIT_SHORT_SHA}"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" $CI_REGISTRY
+    - docker push "${IMAGE_NAME_FRONT_PROD}:${CI_COMMIT_REF_NAME}"
+    - docker push "${IMAGE_NAME_FRONT_PROD}:${CI_COMMIT_SHORT_SHA}"
+  tags:
+    - docker-run
+  when: manual
+######################################## FRONT DEPLOY DEV ##########################################
+Front deploy dev:
+  image: docker:latest
+  stage: Front deploy dev
+  script:
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - echo "Downloading trinity-devops-front-dev.tar..."
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-dev.tar" --name "trinity-devops-front-dev.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-front-dev.tar
+    - az acr login --name $AZURE_REGISTRY_USERNAME
+    - docker tag trinity-devops-front:dev $IMAGE_NAME_FRONT_DEV:latest
+    - docker push $IMAGE_NAME_FRONT_DEV:latest
+    - az webapp config container set --name $WEB_APP_NAME_FRONT_DEV --resource-group artefact-gitlab --docker-custom-image-name $IMAGE_NAME_FRONT_DEV:latest --docker-registry-server-url https://$AZURE_REGISTRY_USERNAME.azurecr.io --docker-registry-server-user $AZURE_REGISTRY_USERNAME --docker-registry-server-password $AZURE_REGISTRY_PASSWORD
+    - az webapp restart --name $WEB_APP_NAME_FRONT_DEV --resource-group artefact-gitlab
+  when: manual
+  tags:
+    - docker-run
+  environment:
+    name: dev
+    url: http://$WEB_APP_NAME_FRONT_DEV.azurewebsites.net
+
+######################################## FRONT DEPLOY DEV ##########################################
+Front deploy prod:
+  image: docker:latest
+  stage: Front deploy prod
+  script:
+    - curl -sL https://aka.ms/downloadazcopy-v10-linux | tar -xz -C /tmp
+    - mv /tmp/azcopy_linux_amd64_*/azcopy /usr/local/bin/
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - echo "Downloading trinity-devops-front-prod.tar..."
+    - az storage blob download --container-name $AZURE_CONTAINER_NAME --file "trinity-devops-front-prod.tar" --name "trinity-devops-front-prod.tar" --account-name $AZURE_STORAGE_ACCOUNT --account-key $AZURE_STORAGE_KEY
+    - ls -la
+    - docker load < trinity-devops-front-prod.tar
+    - az acr login --name $AZURE_REGISTRY_USERNAME
+    - docker tag trinity-devops-front:prod $IMAGE_NAME_FRONT_PROD:latest
+    - docker push $IMAGE_NAME_FRONT_PROD:latest
+    - az webapp config container set --name $WEB_APP_NAME_FRONT_PROD --resource-group artefact-gitlab --docker-custom-image-name $IMAGE_NAME_FRONT_PROD:latest --docker-registry-server-url https://$AZURE_REGISTRY_USERNAME.azurecr.io --docker-registry-server-user $AZURE_REGISTRY_USERNAME --docker-registry-server-password $AZURE_REGISTRY_PASSWORD
+    - az webapp restart --name $WEB_APP_NAME_FRONT_PROD --resource-group artefact-gitlab
+  when: manual
+  tags:
+    - docker-run
+  environment:
+    name: production
+    url: http://$WEB_APP_NAME_FRONT_PROD.azurewebsites.net
+
+#################################################################################################
+# DESTROY STORAGE ACCOUNT ON AZURE
+Destroy storage account:
+  image: docker:latest
+  stage: Destroy storage account
+  script:
+    - apk add --no-cache bash curl jq unzip
+    - curl -fsSL https://releases.hashicorp.com/terraform/1.7.3/terraform_1.7.3_linux_amd64.zip -o terraform.zip
+    - unzip terraform.zip
+    - mv terraform /usr/local/bin/
+    - rm terraform.zip
+    - terraform version
+    - apk add --no-cache py3-pip
+    - pip install azure-cli
+    - az login --service-principal -u $SPN_CLIENT_ID -p $SPN_CLIENT_SECRET --tenant $SPN_TENANT_ID
+    - az account set --subscription $AZ_SUBSCRIPTION_ID
+    - az account show
+    - pwd
+    - ls -la
+    - ls -la terraform-container
+    - cd terraform-container
+    - pwd
+    - terraform init
+    - terraform destroy -auto-approve || true
+    - terraform output -json > outputs.json
+    - cat outputs.json
+  when: manual
+  tags:
+    - terraform-runner
